@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+
+# nunca versionar dados de conexão / listas de clientes
+connections*.json
+db.json*
+*.html
+*.htm
+*.env
