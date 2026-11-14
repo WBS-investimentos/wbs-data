@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
                                QToolButton, QVBoxLayout, QWidget)
 
+from . import cores, theme
 from .drivers import DRIVERS, get_driver
 from .storage import ENV_COLORS, ENVIRONMENTS, ConnectionProfile, ConnectionStore
 
@@ -61,7 +62,7 @@ class ConnectionDialog(QDialog):
 
         self.driver = QComboBox()
         for d in DRIVERS.values():
-            self.driver.addItem(d.label, d.key)
+            self.driver.addItem(theme.db_icon(d.key), d.label, d.key)
         self.driver.setCurrentIndex(max(0, self.driver.findData(self.profile.driver)))
         self.driver.currentIndexChanged.connect(self._driver_changed)
         form.addRow("SGBD", self.driver)
@@ -153,12 +154,12 @@ class ConnectionDialog(QDialog):
         self._env_changed(self.env.currentText())
 
     def _env_changed(self, env):
-        color = ENV_COLORS.get(env, "#555")
+        color = ENV_COLORS.get(env, theme.skorpa("greyColor"))
         txt = {"Cliente": "⛔ CLIENTE — o mais crítico: alterações e commit exigem digitar o nome da conexão; "
                           "auto-commit bloqueado",
                "Produção": "⚠ PRODUÇÃO — comandos de alteração pedirão confirmação"}.get(env, env)
         self.env_banner.setText(txt)
-        self.env_banner.setStyleSheet(f"background:{color}; color:white; padding:4px; font-weight:bold;")
+        self.env_banner.setStyleSheet(f"background:{color}; color:{cores.text_on(color)}; padding:4px; font-weight:bold;")
 
     def _driver_changed(self, *_, initial=False):
         d = get_driver(self.driver.currentData())
@@ -222,7 +223,7 @@ class ConnectionDialog(QDialog):
     def _test_done(self, ok, msg):
         self.btn_test.setEnabled(True)
         self.test_label.setText(msg)
-        self.test_label.setStyleSheet("color:#2e7d32; font-weight:bold;" if ok else "color:#c62828;")
+        self.test_label.setStyleSheet(f"color:{theme.c('green')}; font-weight:bold;" if ok else f"color:{theme.c('red')};")
 
     def _save(self):
         p = self._collect()
