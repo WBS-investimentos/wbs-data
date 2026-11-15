@@ -10,7 +10,7 @@ from PySide6.QtCore import QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QFont, QIcon, QKeySequence, QPainter, QPixmap, QTextCursor
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDockWidget, QFileDialog,
                                QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QSpinBox,
+                               QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QSizePolicy, QSpinBox,
                                QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
@@ -850,6 +850,11 @@ class MainWindow(QMainWindow):
         st = self.settings.value("state")
         if st:
             self.restoreState(st)
+        # estado salvo antes da barra do nome existir: garante ela sozinha na primeira linha
+        self.insertToolBar(self.tb_main, self.tb_brand)
+        if not self.toolBarBreak(self.tb_main):
+            self.insertToolBarBreak(self.tb_main)
+        self.tb_brand.show()
         self.restore_tabs()
         if self.tabs.count() == 0:
             self.central.setCurrentWidget(self.welcome)
@@ -949,6 +954,21 @@ class MainWindow(QMainWindow):
         self.a_export_conns = self._act("Exportar conexões (sem senhas)…", self.export_connections,
                                         None, ("file-export", "icon"))
 
+        # barra superior com o nome Skorpa (fonte Mea Culpa, embutida em resources/fonts)
+        brand = QToolBar("Skorpa")
+        brand.setObjectName("tb_brand")
+        brand.setMovable(False)
+        brand.setFloatable(False)
+        brand.toggleViewAction().setVisible(False)
+        self.brand_label = QLabel("Skorpa")
+        self.brand_label.setAlignment(Qt.AlignCenter)
+        self.brand_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        brand.addWidget(self.brand_label)
+        self.tb_brand = brand
+        self._style_brand()
+        self.addToolBar(brand)
+        self.addToolBarBreak()
+
         tb = QToolBar("Principal")
         tb.setObjectName("tb_main")
         tb.setIconSize(QSize(20, 20))
@@ -1036,8 +1056,22 @@ class MainWindow(QMainWindow):
             # só a aba à vista anima; as outras já ficam no estado certo
             anim.toggle_splitter_pane(tab.split, tab.out_tabs, bool(on), animate=tab is cur)
 
+    def _style_brand(self):
+        self.tb_brand.setStyleSheet(
+            f"QToolBar {{ background: {theme.skorpa('cardBg')}; border: none;"
+            f" border-bottom: 1px solid {theme.skorpa('cardBgHover')}; }}")
+        self.brand_label.setStyleSheet(
+            f"font-family: 'Mea Culpa'; font-size: {theme.pt(24)}pt; font-weight: normal; padding: 2px 0 2px 0;"
+            f" color: {theme.skorpa('whiteColor')};")
+        # a Mea Culpa só tem peso Regular: sem isso o Qt pode engrossar o traço artificialmente
+        f = self.brand_label.font()
+        f.setWeight(QFont.Weight.Normal)
+        f.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        self.brand_label.setFont(f)
+
     def set_theme(self, name):
         theme.apply(name)
+        self._style_brand()
         for a, spec in self._icon_specs:
             a.setIcon(theme.icon(*spec))
         self.a_theme[name].setChecked(True)
