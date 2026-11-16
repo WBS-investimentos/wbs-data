@@ -14,6 +14,8 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from . import cores
+
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "sqlath"
 CONNECTIONS_FILE = CONFIG_DIR / "connections.json"
 HISTORY_FILE = CONFIG_DIR / "history.json"
@@ -22,13 +24,14 @@ HISTORY_LIMIT = 5000
 
 # do mais crítico para o menos crítico
 ENVIRONMENTS = ["Cliente", "Produção", "Homologação", "Desenvolvimento", "Teste", "Local"]
+# cores do Skorpa (sqlath/cores.py); iguais nos dois temas — ver docs/cores.md
 ENV_COLORS = {
-    "Cliente": "#c2185b",
-    "Produção": "#d32f2f",
-    "Homologação": "#f57c00",
-    "Desenvolvimento": "#1976d2",
-    "Teste": "#7b1fa2",
-    "Local": "#388e3c",
+    "Cliente": cores.DARK["negativeInputColor"],
+    "Produção": cores.DARK["negativeColor"],
+    "Homologação": cores.DARK["accentColor"],
+    "Desenvolvimento": cores.DARK["blueColor"],
+    "Teste": cores.DARK["tealColor"],
+    "Local": cores.DARK["positiveColor"],
 }
 
 

@@ -41,7 +41,7 @@ def mono_font(size=11) -> QFont:
         f = QFont(FONT_FAMILY)
     else:
         f = QFontDatabase.systemFont(QFontDatabase.FixedFont)
-    f.setPointSize(size)
+    f.setPointSize(theme.pt(size))
     return f
 
 

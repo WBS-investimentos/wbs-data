@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import re
 from pathlib import Path
 
@@ -9,11 +10,11 @@ from PySide6.QtCore import QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QFont, QIcon, QKeySequence, QPainter, QPixmap, QTextCursor
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDockWidget, QFileDialog,
                                QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QSpinBox,
+                               QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QSizePolicy, QSpinBox,
                                QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from . import __version__, theme
+from . import __version__, anim, cores, theme
 from .dialogs import ConnectionDialog, StructureDialog
 from .drivers import get_driver
 from .editor import SqlEditor
@@ -228,11 +229,11 @@ class SqlTab(QWidget):
         out_split.setSizes([750, 280])
         split.addWidget(out_split)
         self.out_split = out_split
-        out_split.setVisible(getattr(main, "bottom_visible", True))
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
         split.setSizes([400, 300])
         lay.addWidget(split, 1)
+        self.split = split
 
         self.refresh_connections()
         self.set_profile(profile_id, ask=False)
@@ -366,13 +367,13 @@ class SqlTab(QWidget):
         i = self.conn_combo.findData(pid)
         self.conn_combo.setCurrentIndex(max(0, i))
         if p:
-            color = ENV_COLORS.get(p.environment, "#555")
+            color = ENV_COLORS.get(p.environment, theme.skorpa("greyColor"))
             prefix = "⛔ CLIENTE  " if p.is_client else "⚠ PRODUÇÃO  " if p.is_production else ""
             self.banner.setText(prefix + (f"{p.environment.upper()} — " if not p.is_critical else "— ")
                                 + f"{p.host + ':' if p.host else ''}{p.database}"
                                 + ("  [somente leitura]" if p.read_only else ""))
             if p.is_client:   # faixa sólida: impossível não perceber
-                self.banner.setStyleSheet(f"background:{color}; color:white; font-weight:bold; padding:2px 8px;"
+                self.banner.setStyleSheet(f"background:{color}; color:{cores.text_on(color)}; font-weight:bold; padding:2px 8px;"
                                           "border-radius:3px;")
                 self.head.setStyleSheet(f"#tabhead {{ background:{_rgba(color, 0.18)}; border-bottom:4px solid {color}; }}")
             else:
@@ -473,7 +474,8 @@ class SqlTab(QWidget):
     def _update_tx(self):
         if self.session and self.session.dirty:
             self.tx_label.setText("  ● TRANSAÇÃO PENDENTE — faça Commit ou Rollback  ")
-            self.tx_label.setStyleSheet("background:#ff9800; color:black; font-weight:bold; border-radius:3px;")
+            bg = theme.c("orange")
+            self.tx_label.setStyleSheet(f"background:{bg}; color:{cores.text_on(bg)}; font-weight:bold; border-radius:3px;")
         elif self.session and self.connecting:
             self.tx_label.setText("conectando…")
             self.tx_label.setStyleSheet(f"color:{theme.c('orange')};")
@@ -509,6 +511,7 @@ class SqlTab(QWidget):
     def execute(self, whole_script=False):
         if self.running:
             return
+        self.main.set_output_visible(True)  # painel recolhido (Ctrl+J) volta para mostrar o resultado
         p = self.profile
         if p is None:
             QMessageBox.information(self, "SQL", "Escolha o banco desta aba antes de executar.")
@@ -822,7 +825,7 @@ def _guess_table(sql):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"SQL Ath {__version__}")
+        self.setWindowTitle(f"Skorpa Data {__version__}")
         self.resize(1400, 860)
         self.store = ConnectionStore()
         self.history = History()
@@ -844,7 +847,7 @@ class MainWindow(QMainWindow):
                               "Os SQLs de cada banco (SELECT, INSERT, UPDATE, DELETE e OUTROS)\n"
                               "ficam salvos e voltam quando você abrir o banco de novo.")
         self.welcome.setAlignment(Qt.AlignCenter)
-        self.welcome.setStyleSheet("font-size: 13pt;")
+        self.welcome.setStyleSheet(f"font-size: {theme.pt(13)}pt;")
         self.welcome.setEnabled(False)
         self.central = QStackedWidget()
         self.central.addWidget(self.welcome)
@@ -865,6 +868,11 @@ class MainWindow(QMainWindow):
         st = self.settings.value("state")
         if st:
             self.restoreState(st)
+        # estado salvo antes da barra do nome existir: garante ela sozinha na primeira linha
+        self.insertToolBar(self.tb_main, self.tb_brand)
+        if not self.toolBarBreak(self.tb_main):
+            self.insertToolBarBreak(self.tb_main)
+        self.tb_brand.show()
         self.restore_tabs()
         if self.tabs.count() == 0:
             self.central.setCurrentWidget(self.welcome)
@@ -928,20 +936,8 @@ class MainWindow(QMainWindow):
         self.addAction(a)
         return a
 
-    def toggle_bottom(self):
-        """Ctrl+J: recolhe/mostra o painel de baixo (resultado + gráfico) em todas as abas."""
-        self.bottom_visible = not getattr(self, "bottom_visible", True)
-        for i in range(self.tabs.count()):
-            tab = self.tabs.widget(i)
-            if isinstance(tab, SqlTab):
-                if not self.bottom_visible and tab.out_split.isAncestorOf(QApplication.focusWidget()):
-                    tab.editor.setFocus()      # o foco não pode ficar num painel escondido
-                tab.out_split.setVisible(self.bottom_visible)
-        self.a_bottom.setChecked(self.bottom_visible)
-
     def _build_actions(self):
         self._icon_specs = []
-        self.bottom_visible = True
         self.a_new = self._act("Nova aba SQL", lambda: self.new_tab(self._selected_pid()), "Ctrl+T", ("file-plus", "icon"))
         self.a_open = self._act("Abrir arquivo .sql…", self.open_file, "Ctrl+O", ("folder-open", "icon"),
                                 "Importa um arquivo .sql para a sub-aba atual")
@@ -975,6 +971,21 @@ class MainWindow(QMainWindow):
         self.a_import_cratos = self._act("Importar lista do Cratos (HTML)…", self.import_cratos)
         self.a_export_conns = self._act("Exportar conexões (sem senhas)…", self.export_connections,
                                         None, ("file-export", "icon"))
+
+        # barra superior com o nome Skorpa (fonte Mea Culpa, embutida em resources/fonts)
+        brand = QToolBar("Skorpa")
+        brand.setObjectName("tb_brand")
+        brand.setMovable(False)
+        brand.setFloatable(False)
+        brand.toggleViewAction().setVisible(False)
+        self.brand_label = QLabel("Skorpa")
+        self.brand_label.setAlignment(Qt.AlignCenter)
+        self.brand_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        brand.addWidget(self.brand_label)
+        self.tb_brand = brand
+        self._style_brand()
+        self.addToolBar(brand)
+        self.addToolBarBreak()
 
         tb = QToolBar("Principal")
         tb.setObjectName("tb_main")
@@ -1013,13 +1024,22 @@ class MainWindow(QMainWindow):
                   self.a_format, self.a_find, self.a_find_next, self.a_comment):
             m.addSeparator() if a is None else m.addAction(a)
         m = mb.addMenu("E&xibir")
-        a_tree = self.dock_tree.toggleViewAction()
-        a_tree.setShortcut(QKeySequence("Ctrl+B"))
-        self.addAction(a_tree)           # atalho funciona mesmo com o painel fechado
-        m.addAction(a_tree)
-        self.a_bottom = self._act("Painel de resultados", self.toggle_bottom, "Ctrl+J", checkable=True)
-        self.a_bottom.setChecked(True)
-        m.addAction(self.a_bottom)
+        # ação própria (em vez do toggleViewAction do dock) para recolher/mostrar com animação
+        self.a_sidebar = QAction("Bancos de dados", self)
+        self.a_sidebar.setShortcut(QKeySequence("Ctrl+B"))  # Cmd+B no macOS
+        self.a_sidebar.setCheckable(True)
+        self.a_sidebar.setChecked(self.dock_tree.isVisible())
+        self.a_sidebar.triggered.connect(lambda on: anim.toggle_dock(self, self.dock_tree, on))
+        self.dock_tree.visibilityChanged.connect(
+            lambda _: anim.is_animating(self.dock_tree) or self.a_sidebar.setChecked(not self.dock_tree.isHidden()))
+        self.addAction(self.a_sidebar)
+        m.addAction(self.a_sidebar)
+        self.a_output = QAction("Painel de resultados", self)
+        self.a_output.setShortcut(QKeySequence("Ctrl+J"))  # Cmd+J no macOS
+        self.a_output.setCheckable(True)
+        self.a_output.setChecked(self.output_visible)
+        self.a_output.triggered.connect(self.set_output_visible)
+        m.addAction(self.a_output)
         m.addAction(self.dock_history.toggleViewAction())
         m.addSeparator()
         self.a_reopen = m.addAction("Reabrir bancos abertos ao iniciar")
@@ -1040,8 +1060,36 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("Aj&uda")
         m.addAction("Atalhos", self.show_shortcuts)
 
+    @property
+    def output_visible(self) -> bool:
+        return self.settings.value("output_visible", True, type=bool)
+
+    def set_output_visible(self, on: bool):
+        """Mostra/recolhe o painel de baixo (Mensagens/Resultado/Histórico + gráfico) em todas as abas."""
+        self.settings.setValue("output_visible", bool(on))
+        self.a_output.setChecked(bool(on))
+        cur = self.cur
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            # só a aba à vista anima; as outras já ficam no estado certo
+            anim.toggle_splitter_pane(tab.split, tab.out_split, bool(on), animate=tab is cur)
+
+    def _style_brand(self):
+        self.tb_brand.setStyleSheet(
+            f"QToolBar {{ background: {theme.skorpa('cardBg')}; border: none;"
+            f" border-bottom: 1px solid {theme.skorpa('cardBgHover')}; }}")
+        self.brand_label.setStyleSheet(
+            f"font-family: 'Mea Culpa'; font-size: {theme.pt(24)}pt; font-weight: normal; padding: 2px 0 2px 0;"
+            f" color: {theme.skorpa('whiteColor')};")
+        # a Mea Culpa só tem peso Regular: sem isso o Qt pode engrossar o traço artificialmente
+        f = self.brand_label.font()
+        f.setWeight(QFont.Weight.Normal)
+        f.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        self.brand_label.setFont(f)
+
     def set_theme(self, name):
         theme.apply(name)
+        self._style_brand()
         for a, spec in self._icon_specs:
             a.setIcon(theme.icon(*spec))
         self.a_theme[name].setChecked(True)
@@ -1070,7 +1118,7 @@ class MainWindow(QMainWindow):
             tab = self.tabs.widget(i)
             self.tabs.setTabText(i, tab.title())
             p = tab.profile
-            self.tabs.setTabIcon(i, dot_icon(ENV_COLORS.get(p.environment, "#999")) if p else QIcon())
+            self.tabs.setTabIcon(i, dot_icon(ENV_COLORS.get(p.environment, theme.skorpa("greyColor"))) if p else QIcon())
             self.tabs.tabBar().setTabTextColor(i, QColor(ENV_COLORS[p.environment]) if p and p.is_critical
                                                else QApplication.palette().windowText().color())
         has = t is not None
@@ -1127,6 +1175,7 @@ class MainWindow(QMainWindow):
             tab = SqlTab(self, profile_id)
             tab.state_changed.connect(self.update_state)
             tab.executed.connect(self._add_history)
+            tab.out_split.setVisible(self.output_visible)
             self.tabs.addTab(tab, tab.title())
         self.tabs.setCurrentWidget(tab)
         self.central.setCurrentWidget(self.tabs)
@@ -1222,7 +1271,7 @@ class MainWindow(QMainWindow):
                 it.setData(0, R_PID, p.id)
                 it.setToolTip(0, f"{get_driver(p.driver).label}\n{p.host}{':' + p.port if p.port else ''}\n"
                                  f"{p.database}\nusuário: {p.user}" + (f"\n\n{p.notes}" if p.notes else ""))
-                it.setIcon(0, theme.icon("database", "blue"))
+                it.setIcon(0, theme.db_icon(p.driver))
                 g.addChild(it)
                 it.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
                 if p.id in self.meta_objects:
@@ -1682,10 +1731,11 @@ Ctrl+T — nova aba          Ctrl+O / Ctrl+S — abrir / salvar
 Ctrl+Espaço — autocompletar
 Ctrl+Shift+F — formatar o SQL selecionado (sem seleção: tudo)
 Ctrl+/ — comentar linhas   Ctrl+F / F3 — localizar
-Ctrl+B — mostrar/ocultar bancos   Ctrl+J — mostrar/ocultar resultados
+Ctrl+B — mostrar/recolher a barra lateral de bancos
+Ctrl+J — mostrar/recolher o painel de resultados
 Duplo clique em tabela — SELECT das primeiras 100 linhas
 Duplo clique em célula — ver valor completo
-""".strip())
+""".strip().replace("Ctrl+", "⌘" if sys.platform == "darwin" else "Ctrl+"))
 
     # sessão de trabalho -------------------------------------------
     def restore_tabs(self):
