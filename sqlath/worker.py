@@ -85,6 +85,23 @@ class _Worker(QObject):
             self.dirty = value
             self.tx_state.emit(value)
 
+    def _refresh_snapshot(self):
+        """Encerra a transação só de leitura para a próxima consulta ver dados novos.
+
+        Com auto-commit desligado, o primeiro SELECT abre uma transação que fica
+        aberta; no Firebird (SNAPSHOT) e no MySQL (REPEATABLE READ) ela enxerga
+        sempre a mesma foto do banco, e alterações feitas por outros sistemas só
+        apareciam ao reconectar. Sem alterações pendentes, o rollback não descarta
+        nada do usuário e a próxima instrução abre uma transação nova.
+        """
+        if self.conn is None or self.dirty:
+            return
+        self._close_cursor()
+        try:
+            self.conn.rollback()
+        except Exception:
+            pass
+
     def _close_cursor(self):
         if self.cursor is not None:
             try:
@@ -112,19 +129,22 @@ class _Worker(QObject):
             summary["errors"] = 1
             self.script_done.emit(summary)
             return
+        self._refresh_snapshot()
         for idx, st in enumerate(statements):
             if self.cancel:
                 summary["cancelled"] = True
                 break
             self._close_cursor()
             info = dict(index=idx, sql=st["sql"], start=st["start"], end=st["end"], columns=None,
-                        rows=[], has_more=False, rowcount=-1, error=None)
+                        rows=[], has_more=False, rowcount=-1, error=None,
+                        exec_time=0.0)
             t0 = time.perf_counter()
             try:
                 cur = self.conn.cursor()
                 self.cursor = cur
                 with self._server_work():
                     cur.execute(st["sql"])
+                info["exec_time"] = time.perf_counter() - t0
                 if cur.description:
                     info["columns"] = [dict(name=d[0], type=_type_name(d)) for d in cur.description]
                     page = max_rows if max_rows > 0 else DEFAULT_PAGE
@@ -143,6 +163,8 @@ class _Worker(QObject):
                 summary["ok"] += 1
             except Exception as e:
                 info["error"] = _err(e)
+                if not info["exec_time"]:   # falhou no execute: o tempo todo é de execução
+                    info["exec_time"] = time.perf_counter() - t0
                 summary["errors"] += 1
                 if autocommit:
                     try:
@@ -150,6 +172,7 @@ class _Worker(QObject):
                     except Exception:
                         pass
             info["elapsed"] = time.perf_counter() - t0
+            info["fetch_time"] = max(0.0, info["elapsed"] - info["exec_time"])
             self.statement_done.emit(info)
             if info["error"] and stop_on_error:
                 break
@@ -200,7 +223,9 @@ class _Worker(QObject):
         """Executa fn(driver, conn) na thread da conexão (metadados etc.)."""
         try:
             self._ensure()
-            self.call_done.emit(tag, fn(self.driver, self.conn))
+            result = fn(self.driver, self.conn)
+            self._refresh_snapshot()   # metadados novos (tabelas, colunas) no próximo refresh
+            self.call_done.emit(tag, result)
         except Exception as e:
             try:
                 self.conn.rollback()

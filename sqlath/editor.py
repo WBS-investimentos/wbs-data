@@ -126,6 +126,7 @@ class SqlEditor(QPlainTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.error_range: tuple[int, int] | None = None
+        self._link_range: tuple[int, int] | None = None  # nome sublinhado com Ctrl pressionado
         self.setFont(mono_font())
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.setTabStopDistance(self.fontMetrics().horizontalAdvance(" ") * 4)
@@ -142,6 +143,8 @@ class SqlEditor(QPlainTextEdit):
         self.other_names: list[str] = []
         self.columns_cache: dict[str, list[str]] = {}   # TABELA (maiúsc.) -> colunas
         self.columns_provider = None                     # callable(tabela): busca colunas em background
+        self.structure_handler = None                    # callable(nome): Ctrl+clique mostra a estrutura
+        self.setMouseTracking(True)
         self._requested: set[str] = set()
         self.completer = QCompleter(self)
         self.completer.setWidget(self)
@@ -261,7 +264,61 @@ class SqlEditor(QPlainTextEdit):
         r.setWidth(min(500, popup.sizeHintForColumn(0) + popup.verticalScrollBar().sizeHint().width() + 24))
         self.completer.complete(r)
 
+    # ---------------- Ctrl+clique: estrutura da tabela ----------------
+    def _name_at(self, pos):
+        """(início, fim, nome) da tabela/view sob o ponto, ou None."""
+        c = self.cursorForPosition(pos)
+        block, col = c.block(), c.positionInBlock()
+        for m in re.finditer(r'"?[\w$]+"?(?:\."?[\w$]+"?)?', block.text()):
+            if not m.start() <= col <= m.end():
+                continue
+            # cursorForPosition aceita pontos além do fim da linha: exige o mouse em cima da palavra
+            a, b = QTextCursor(block), QTextCursor(block)
+            a.setPosition(block.position() + m.start())
+            b.setPosition(block.position() + m.end())
+            if not self.cursorRect(a).left() <= pos.x() <= self.cursorRect(b).right():
+                return None
+            name = m.group(0).replace('"', "")
+            if name.split(".")[-1].upper() in {t.upper() for t in self.table_names}:
+                return a.position(), b.position(), name
+            return None
+        return None
+
+    def _set_link(self, rng):
+        if rng != self._link_range:
+            self._link_range = rng
+            self.viewport().setCursor(Qt.PointingHandCursor if rng else Qt.IBeamCursor)
+            self._highlight_line()
+
+    def _update_link(self, pos, modifiers):
+        hit = self._name_at(pos) if modifiers & Qt.ControlModifier and self.structure_handler else None
+        self._set_link(hit[:2] if hit else None)
+
+    def mouseMoveEvent(self, e):
+        self._update_link(e.position().toPoint(), e.modifiers())
+        super().mouseMoveEvent(e)
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and e.modifiers() & Qt.ControlModifier and self.structure_handler:
+            hit = self._name_at(e.position().toPoint())
+            if hit:
+                self.structure_handler(hit[2])
+                e.accept()
+                return
+        super().mousePressEvent(e)
+
+    def keyReleaseEvent(self, e):
+        if e.key() == Qt.Key_Control:
+            self._set_link(None)
+        super().keyReleaseEvent(e)
+
+    def leaveEvent(self, e):
+        self._set_link(None)
+        super().leaveEvent(e)
+
     def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Control:
+            self._update_link(self.viewport().mapFromGlobal(self.cursor().pos()), Qt.ControlModifier)
         popup = self.completer.popup()
         if popup.isVisible() and e.key() in (Qt.Key_Enter, Qt.Key_Return, Qt.Key_Tab, Qt.Key_Escape):
             if e.key() == Qt.Key_Escape:
@@ -373,6 +430,15 @@ class SqlEditor(QPlainTextEdit):
             c.setPosition(min(self.error_range[1], len(self.toPlainText())), QTextCursor.KeepAnchor)
             err.cursor = c
             sels.append(err)
+        if self._link_range:
+            link = QTextEdit.ExtraSelection()
+            link.format.setFontUnderline(True)
+            link.format.setForeground(QColor(theme.c("blue")))
+            c = QTextCursor(self.document())
+            c.setPosition(self._link_range[0])
+            c.setPosition(self._link_range[1], QTextCursor.KeepAnchor)
+            link.cursor = c
+            sels.append(link)
         self.setExtraSelections(sels)
 
     def apply_theme(self):

@@ -4,10 +4,12 @@ from __future__ import annotations
 import copy
 
 from PySide6.QtCore import QThread, Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import (QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
                                QToolButton, QVBoxLayout, QWidget)
 
+from . import theme
 from .drivers import DRIVERS, get_driver
 from .storage import ENV_COLORS, ENVIRONMENTS, ConnectionProfile, ConnectionStore
 
@@ -237,3 +239,54 @@ class ConnectionDialog(QDialog):
             return
         self.store.upsert(p, self.password.text())
         self.accept()
+
+
+class StructureDialog(QDialog):
+    """Estrutura de uma tabela/view: colunas, tipos, nulidade, default e PK (Ctrl+clique no editor)."""
+
+    def __init__(self, title, columns, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Estrutura — {title}")
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.resize(760, min(140 + 26 * len(columns), 720))
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel(f"<b>{title}</b> — {len(columns)} coluna(s)"))
+
+        heads = ["#", "Coluna", "Tipo", "Nulo", "Default"]
+        t = QTableWidget(len(columns), len(heads))
+        t.setHorizontalHeaderLabels(heads)
+        t.verticalHeader().hide()
+        t.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        t.setSelectionBehavior(QAbstractItemView.SelectRows)
+        t.setAlternatingRowColors(True)
+        for r, c in enumerate(columns):
+            name = QTableWidgetItem(c["name"])
+            if c.get("pk"):
+                name.setIcon(theme.icon("key", "yellow"))
+                name.setToolTip("Chave primária")
+            vals = [QTableWidgetItem(str(r + 1)), name, QTableWidgetItem(c["type"]),
+                    QTableWidgetItem("" if c.get("nullable", True) else "NOT NULL"),
+                    QTableWidgetItem(c.get("default") or "")]
+            vals[0].setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            for col, it in enumerate(vals):
+                t.setItem(r, col, it)
+        t.resizeColumnsToContents()
+        t.horizontalHeader().setStretchLastSection(True)
+        t.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        lay.addWidget(t)
+
+        bar = QHBoxLayout()
+        b_names = QPushButton("Copiar nomes das colunas")
+        b_names.clicked.connect(lambda: QGuiApplication.clipboard().setText(
+            ", ".join(c["name"] for c in columns)))
+        b_all = QPushButton("Copiar estrutura")
+        b_all.clicked.connect(lambda: QGuiApplication.clipboard().setText("\n".join(
+            "\t".join([c["name"], c["type"], "" if c.get("nullable", True) else "NOT NULL",
+                       c.get("default") or "", "PK" if c.get("pk") else ""]) for c in columns)))
+        bar.addWidget(b_names)
+        bar.addWidget(b_all)
+        bar.addStretch(1)
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(self.reject)
+        bar.addWidget(bb)
+        lay.addLayout(bar)

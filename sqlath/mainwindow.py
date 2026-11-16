@@ -14,9 +14,10 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from . import __version__, theme
-from .dialogs import ConnectionDialog
+from .dialogs import ConnectionDialog, StructureDialog
 from .drivers import get_driver
 from .editor import SqlEditor
+from .perfchart import PerfChart
 from .results import ResultView
 from .formatter import format_sql
 from .sqlsplit import is_read_only, kind_of, leading_words, split_sql
@@ -217,7 +218,17 @@ class SqlTab(QWidget):
         self.out_tabs.addTab(self.messages, "Mensagens")
         self.history_panel = HistoryPanel(self)
         self.out_tabs.addTab(self.history_panel, theme.icon("history", "icon"), "Histórico")
-        split.addWidget(self.out_tabs)
+        # resultado à esquerda, gráfico de tempos das execuções à direita
+        out_split = QSplitter(Qt.Horizontal)
+        out_split.addWidget(self.out_tabs)
+        self.perf_chart = PerfChart()
+        out_split.addWidget(self.perf_chart)
+        out_split.setStretchFactor(0, 3)
+        out_split.setStretchFactor(1, 1)
+        out_split.setSizes([750, 280])
+        split.addWidget(out_split)
+        self.out_split = out_split
+        out_split.setVisible(getattr(main, "bottom_visible", True))
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
         split.setSizes([400, 300])
@@ -371,6 +382,7 @@ class SqlTab(QWidget):
             for ed in self.editors.values():
                 ed.clear_completion_cache()
                 ed.columns_provider = lambda table, pid=pid: self.main.request_columns(pid, table)
+                ed.structure_handler = lambda name, pid=pid: self.main.show_structure(pid, name)
             self.main.ensure_objects(pid)
             self.set_objects(self.main.meta_objects.get(pid) or {})
             for t, cols in self.main.columns_cache.get(pid, {}).items():
@@ -378,6 +390,8 @@ class SqlTab(QWidget):
         else:
             self.banner.setText("")
             self.head.setStyleSheet("")
+            for ed in self.editors.values():
+                ed.structure_handler = None
         self.history_panel.refresh()
         self._update_tx()
         self.state_changed.emit()
@@ -577,6 +591,11 @@ class SqlTab(QWidget):
             rc = info["rowcount"]
             summary = f"{rc} afetada(s)" if rc is not None and rc >= 0 else "OK"
         self.executed.emit(self.profile_id, name, info["sql"], info["error"] is None, info["elapsed"], summary)
+        if info["columns"] is not None:   # SELECT: execução + busca da primeira página
+            exec_t, fetch_t = info.get("exec_time", info["elapsed"]), info.get("fetch_time", 0.0)
+        else:                             # DML/DDL: não há busca, o tempo todo conta como execução
+            exec_t, fetch_t = info["elapsed"], 0.0
+        self.perf_chart.add(info["sql"], exec_t, fetch_t, info["error"] is None, summary)
         ms = f"{info['elapsed'] * 1000:.0f} ms"
         if info["error"]:
             self.log(f"ERRO ({ms}):\n{info['error']}\n» {_preview(info['sql'])}", error=True)
@@ -909,8 +928,20 @@ class MainWindow(QMainWindow):
         self.addAction(a)
         return a
 
+    def toggle_bottom(self):
+        """Ctrl+J: recolhe/mostra o painel de baixo (resultado + gráfico) em todas as abas."""
+        self.bottom_visible = not getattr(self, "bottom_visible", True)
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if isinstance(tab, SqlTab):
+                if not self.bottom_visible and tab.out_split.isAncestorOf(QApplication.focusWidget()):
+                    tab.editor.setFocus()      # o foco não pode ficar num painel escondido
+                tab.out_split.setVisible(self.bottom_visible)
+        self.a_bottom.setChecked(self.bottom_visible)
+
     def _build_actions(self):
         self._icon_specs = []
+        self.bottom_visible = True
         self.a_new = self._act("Nova aba SQL", lambda: self.new_tab(self._selected_pid()), "Ctrl+T", ("file-plus", "icon"))
         self.a_open = self._act("Abrir arquivo .sql…", self.open_file, "Ctrl+O", ("folder-open", "icon"),
                                 "Importa um arquivo .sql para a sub-aba atual")
@@ -982,7 +1013,13 @@ class MainWindow(QMainWindow):
                   self.a_format, self.a_find, self.a_find_next, self.a_comment):
             m.addSeparator() if a is None else m.addAction(a)
         m = mb.addMenu("E&xibir")
-        m.addAction(self.dock_tree.toggleViewAction())
+        a_tree = self.dock_tree.toggleViewAction()
+        a_tree.setShortcut(QKeySequence("Ctrl+B"))
+        self.addAction(a_tree)           # atalho funciona mesmo com o painel fechado
+        m.addAction(a_tree)
+        self.a_bottom = self._act("Painel de resultados", self.toggle_bottom, "Ctrl+J", checkable=True)
+        self.a_bottom.setChecked(True)
+        m.addAction(self.a_bottom)
         m.addAction(self.dock_history.toggleViewAction())
         m.addSeparator()
         self.a_reopen = m.addAction("Reabrir bancos abertos ao iniciar")
@@ -1416,6 +1453,13 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Código-fonte", "Não disponível para este objeto.")
                 return
             self.new_tab(pid, val, "OUTROS")
+        elif tag.startswith("struct\x00"):
+            name = tag.split("\x00", 1)[1]
+            if not val:
+                QMessageBox.information(self, "Estrutura", f"Nenhuma coluna encontrada para {name}.")
+                return
+            p = self.store.get(pid)
+            StructureDialog(f"{name}  ({p.name})" if p else name, val, self).show()
         elif tag.startswith("gen\x00"):
             _, name, kind = tag.split("\x00", 2)
             self._gen_done(pid, name, kind, val)
@@ -1473,6 +1517,14 @@ class MainWindow(QMainWindow):
         full = next((n for cat in ("Tabelas", "Views") for n in objs.get(cat, [])
                      if n.split(".")[-1].upper() == table.upper()), table)
         self.meta_call(pid, f"ac_cols\x00{full}", lambda d, c: d.columns(c, full))
+
+    def show_structure(self, pid, name):
+        """Ctrl+clique num nome de tabela/view no editor: abre a estrutura (colunas e tipos)."""
+        objs = self.meta_objects.get(pid) or {}
+        short = name.split(".")[-1].upper()
+        full = next((n for cat in ("Tabelas", "Views") for n in objs.get(cat, [])
+                     if n.upper() == name.upper() or n.split(".")[-1].upper() == short), name)
+        self.meta_call(pid, f"struct\x00{full}", lambda d, c: d.columns(c, full))
 
     def object_names(self, pid) -> list[str]:
         objs = self.meta_objects.get(pid) or {}
@@ -1630,6 +1682,7 @@ Ctrl+T — nova aba          Ctrl+O / Ctrl+S — abrir / salvar
 Ctrl+Espaço — autocompletar
 Ctrl+Shift+F — formatar o SQL selecionado (sem seleção: tudo)
 Ctrl+/ — comentar linhas   Ctrl+F / F3 — localizar
+Ctrl+B — mostrar/ocultar bancos   Ctrl+J — mostrar/ocultar resultados
 Duplo clique em tabela — SELECT das primeiras 100 linhas
 Duplo clique em célula — ver valor completo
 """.strip())

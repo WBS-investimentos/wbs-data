@@ -211,8 +211,10 @@ class ResultView(QWidget):
 
         self.view = QTableView()
         self.view.setModel(self.proxy)
+        # Zera o indicador ANTES de ligar a ordenação: setSortingEnabled(True) reordena na hora
+        # pelo indicador atual (padrão: coluna 0 decrescente) e destruiria o ORDER BY da query.
+        self.view.horizontalHeader().setSortIndicator(-1, Qt.AscendingOrder)
         self.view.setSortingEnabled(True)
-        self.view.sortByColumn(-1, Qt.AscendingOrder)
         self.view.setAlternatingRowColors(True)
         self.view.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.view.verticalHeader().setDefaultSectionSize(self.view.fontMetrics().height() + 6)
