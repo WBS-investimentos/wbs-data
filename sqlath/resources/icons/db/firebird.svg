@@ -1,16 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 100 100">
   <defs>
-    <linearGradient id="fb-fire" x1="0.1" y1="1" x2="0.7" y2="0">
-      <stop offset="0" stop-color="#c62828"/>
-      <stop offset="0.5" stop-color="#f4511e"/>
-      <stop offset="1" stop-color="#ffb300"/>
+    <linearGradient id="fb-fire" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd200"/>
+      <stop offset="0.45" stop-color="#f7931e"/>
+      <stop offset="1" stop-color="#ee2a24"/>
     </linearGradient>
+    <!-- espaço vazio dentro do anel: o que sobra é o anel + a fênix -->
+    <mask id="fb-cut">
+      <circle cx="50" cy="50" r="49" fill="#fff"/>
+      <path fill="#000" d="M46 -1H53
+        C72 3 90 22 90 45 C90 52 88.5 57 86 61
+        C80 68 69 71 61 65
+        C55 59 54 50 58 43 C60 39 62 34 63 30
+        C65 29 67 27 68 24 C64 26 61 25 57 23
+        C51 20 45 21 41 25 C37 27 33 28 29 31
+        L26 34 L32 35 C35 36 37 37 39 39
+        C41 41 41 43 40 45 C33 53 28 63 29 74
+        C29 80 30 86 32 92
+        C14 84 6 64 10 44 C13 28 24 13 45 5Z"/>
+    </mask>
   </defs>
-  <!-- asa: chamas subindo -->
-  <path fill="url(#fb-fire)" d="M11.5 14.5C8 13.5 4.5 10.5 2.5 4.5c2 1.6 3.4 2.2 4.6 2.4C6.2 5.4 5.9 3.6 6.3 1.5c1.3 2.3 2.6 3.6 4.1 4.3c-.3-1.3-.1-2.6.6-3.9c.6 2.6 1.9 4.5 3.3 5.9z"/>
-  <!-- corpo, cabeça e bico -->
-  <path fill="url(#fb-fire)" d="M8.5 15.5c1.5-4 4.5-6.8 8.2-7.3c.9-1.2 2.1-1.8 3.3-1.6l2 .9l-2.1.6c.3 2.6-.8 5-3 6.9c-2.2 1.9-5.1 2.3-8.4.5z"/>
-  <!-- cauda -->
-  <path fill="url(#fb-fire)" d="M9.8 15.2c-1.6 1.6-3.8 2.3-6.8 2.1c1.6.9 3 1.2 4.3 1.1c-1.4 1.3-3 2.1-5 2.6c3.3.6 6.5-.2 9.3-2.6c.9-.8 1.3-1.6 1.1-2.4z"/>
-  <circle cx="19.3" cy="7.9" r=".55" fill="#fff8e1"/>
+  <circle cx="50" cy="50" r="49" fill="url(#fb-fire)" mask="url(#fb-cut)"/>
 </svg>
