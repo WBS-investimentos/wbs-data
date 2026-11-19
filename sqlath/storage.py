@@ -149,6 +149,44 @@ class ConnectionStore:
                 return profile.password
         return profile.password
 
+    # ---- exportar / importar uma conexão (JSON) -----------------------
+    def export_profile(self, profile_id: str, path: str | Path, include_password: bool = False):
+        p = self.get(profile_id)
+        d = {k: v for k, v in asdict(p).items() if k not in ("id", "password")}
+        if include_password:
+            d["password"] = self.get_password(p)
+        data = {"skorpa_data_connection": 1, "connection": d}
+        Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        if include_password:
+            os.chmod(path, 0o600)
+
+    @staticmethod
+    def read_profiles_file(path: str | Path) -> list[tuple[ConnectionProfile, str | None]]:
+        """Lê um arquivo de conexão. Aceita o formato de uma conexão
+        ({"connection": {...}}), a lista ({"connections": [...]}) ou o objeto solto.
+        Devolve (perfil com id novo, senha ou None)."""
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("connection"), dict):
+            items = [data["connection"]]
+        elif isinstance(data, dict) and isinstance(data.get("connections"), list):
+            items = data["connections"]
+        elif isinstance(data, dict) and "name" in data:
+            items = [data]
+        else:
+            raise ValueError("Arquivo não parece uma conexão do Skorpa Data.")
+        known = ConnectionProfile.__dataclass_fields__
+        out = []
+        for item in items:
+            if not isinstance(item, dict) or not item.get("name"):
+                raise ValueError("Conexão sem nome no arquivo.")
+            pw = item.get("password")
+            fields = {k: v for k, v in item.items() if k in known and k not in ("id", "password")}
+            prof = ConnectionProfile(**fields)
+            if prof.environment not in ENVIRONMENTS:
+                prof.environment = "Desenvolvimento"
+            out.append((prof, pw if isinstance(pw, str) and pw else None))
+        return out
+
     # ---- importação ---------------------------------------------------
     def import_cratos_html(self, path, password: str, user: str = "SYSDBA", environment: str = "Cliente"):
         return _import_cratos(self, path, password, user, environment)

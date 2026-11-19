@@ -967,6 +967,7 @@ class MainWindow(QMainWindow):
                                   ("align-left", "icon"), "Formata o SQL selecionado (sem seleção: o editor inteiro)")
         self.a_comment = self._act("Comentar/descomentar", lambda: self.cur and self.cur.editor.toggle_comment(), None)
         self.a_new_conn = self._act("Nova conexão…", self.new_connection, "Ctrl+Shift+N", ("database-plus", "blue"))
+        self.a_import_conn = self._act("Importar conexão…", self.import_connection, None, ("folder-open", "icon"))
         self.a_import = self._act("Importar db.json (apix)…", self.import_dbjson)
         self.a_import_cratos = self._act("Importar lista do Cratos (HTML)…", self.import_cratos)
         self.a_export_conns = self._act("Exportar conexões (sem senhas)…", self.export_connections,
@@ -1014,7 +1015,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction("Sair", self.close)
         m = mb.addMenu("&Banco")
-        for a in (self.a_new_conn, self.a_import, self.a_import_cratos, self.a_export_conns):
+        for a in (self.a_new_conn, self.a_import_conn, self.a_import, self.a_import_cratos, self.a_export_conns):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.a_reconnect)
@@ -1341,6 +1342,9 @@ class MainWindow(QMainWindow):
             m.addAction("Editar conexão…", lambda: self.edit_connection(pid))
             m.addAction("Duplicar conexão…", lambda: self.duplicate_connection(pid))
             m.addAction("Excluir conexão", lambda: self.delete_connection(pid))
+            m.addSeparator()
+            m.addAction(theme.icon("file-export", "icon"), "Exportar conexão…", lambda: self.export_connection(pid))
+            m.addAction(theme.icon("folder-open", "icon"), "Importar conexão…", self.import_connection)
         elif kind == "obj":
             cat, name = it.data(0, R_CAT), it.data(0, R_NAME)
             drv = get_driver(self.store.get(pid).driver)
@@ -1362,6 +1366,7 @@ class MainWindow(QMainWindow):
             m.addAction("Copiar nome", lambda: QApplication.clipboard().setText(name))
         else:
             m.addAction("Nova conexão…", self.new_connection)
+            m.addAction(theme.icon("folder-open", "icon"), "Importar conexão…", self.import_connection)
             m.addAction("Importar db.json (apix)…", self.import_dbjson)
         m.exec(self.tree.viewport().mapToGlobal(pos))
 
@@ -1647,6 +1652,81 @@ class MainWindow(QMainWindow):
             self.disconnect_meta(pid)
             self.store.delete(pid)
             self._connections_changed()
+
+    def export_connection(self, pid):
+        p = self.store.get(pid)
+        if not p:
+            return
+        safe = re.sub(r"[^\w.-]+", "_", p.name).strip("_") or "conexao"
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar conexão", str(Path.home() / f"{safe}.json"),
+                                              "JSON (*.json)")
+        if not path:
+            return
+        include_pw = QMessageBox.question(
+            self, "Exportar conexão",
+            f"Incluir a senha de '{p.name}' no arquivo?\n\nA senha fica em texto puro no JSON: "
+            "só inclua se o arquivo for ficar em lugar seguro.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+        try:
+            self.store.export_profile(pid, path, include_pw)
+        except Exception as e:
+            QMessageBox.critical(self, "Exportar conexão", str(e))
+            return
+        self.statusBar().showMessage(f"Conexão '{p.name}' exportada para {path}", 6000)
+
+    def import_connection(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Importar conexão", str(Path.home()), "JSON (*.json);;Todos (*)")
+        if not path:
+            return
+        try:
+            items = self.store.read_profiles_file(path)
+            for prof, _pw in items:
+                get_driver(prof.driver)   # valida o driver antes de gravar
+        except Exception as e:
+            QMessageBox.critical(self, "Importar conexão", f"Não foi possível ler o arquivo:\n{e}")
+            return
+        imported = []
+        for prof, pw in items:
+            existing = next((p for p in self.store.profiles if p.name == prof.name), None)
+            if existing:
+                box = QMessageBox(QMessageBox.Question, "Importar conexão",
+                                  f"Já existe uma conexão chamada '{prof.name}'.", parent=self)
+                b_replace = box.addButton("Substituir", QMessageBox.AcceptRole)
+                b_copy = box.addButton("Criar cópia", QMessageBox.ActionRole)
+                box.addButton("Pular", QMessageBox.RejectRole)
+                box.exec()
+                if box.clickedButton() is b_replace:
+                    prof.id = existing.id
+                    self.passwords.pop(existing.id, None)
+                    self.disconnect_meta(existing.id)
+                    if pw is None:
+                        pw = self.store.get_password(existing) or None
+                elif box.clickedButton() is b_copy:
+                    prof.name += " (importada)"
+                else:
+                    continue
+            self.store.upsert(prof, pw)
+            imported.append(prof)
+        if not imported:
+            return
+        self._connections_changed()
+        it = self._conn_item(imported[-1].id)
+        if it:
+            self.tree.setCurrentItem(it)
+            self.tree.scrollToItem(it)
+        if len(imported) > 1:
+            QMessageBox.information(self, "Importar conexão", f"{len(imported)} conexões importadas.")
+            return
+        p = imported[0]
+        msg = f"Conexão '{p.name}' ({p.environment}) importada."
+        if p.is_critical:
+            msg += f"\n\nAtenção: ambiente {p.environment.upper()}."
+        if QMessageBox.question(self, "Importar conexão", msg + "\n\nConectar agora?",
+                                QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.No if p.is_critical else QMessageBox.Yes) == QMessageBox.Yes:
+            self.new_tab(p.id)
+            if p.id not in self.meta_sessions:
+                self.connect_meta(p.id)
 
     def import_dbjson(self):
         default = str(Path.home() / "Projects/athenas-online/apix/src/db.json")
