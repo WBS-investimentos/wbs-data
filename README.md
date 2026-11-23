@@ -1,4 +1,4 @@
-# Skorpa Data
+# WBS Data
 
 Cliente SQL desktop (estilo IBExpert) em Python + PySide6 (Qt).
 
@@ -15,7 +15,7 @@ Primeira instalação em outra máquina:
     ./macos/criar_app.sh
 
 Cria a `.venv` (se não existir, usando o Python do Homebrew) e instala
-`~/Applications/Skorpa Data.app`, com ícone, que abre pelo Launchpad/Spotlight e pode
+`~/Applications/WBS Data.app`, com ícone, que abre pelo Launchpad/Spotlight e pode
 ser fixado no Dock. O app roda direto deste repositório, então `git pull` já vale no
 próximo clique; rode o script de novo só se mover a pasta ou recriar a `.venv`.
 No Mac, os atalhos com Ctrl usam ⌘ (Cmd) e as senhas ficam no Keychain.

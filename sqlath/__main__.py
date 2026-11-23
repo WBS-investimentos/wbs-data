@@ -14,7 +14,7 @@ FONTS = Path(__file__).parent / "resources" / "fonts"
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("Skorpa Data")
+    app.setApplicationName("WBS Data")
     app.setOrganizationName("sqlath")
     app.setDesktopFileName("sqlath")  # associa a janela ao atalho sqlath.desktop
     app.setWindowIcon(QIcon(str(ICON)))

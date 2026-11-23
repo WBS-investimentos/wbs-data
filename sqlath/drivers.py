@@ -93,6 +93,46 @@ class Driver:
     def source(self, conn, category: str, name: str) -> str | None:
         return None
 
+    # --- SQL padrão: "a tabela existe?" / "a coluna existe?" (menu do editor) ---
+    fold = ""   # "upper"/"lower": como o banco guarda nomes sem aspas
+
+    def _ident(self, name: str) -> str:
+        """Nome digitado como o catálogo guarda (sem aspas, com a caixa do banco)."""
+        name = name.strip()
+        if len(name) > 1 and name[0] == name[-1] and name[0] in "\"`[":
+            return name[1:-1]
+        if self.fold == "upper":
+            return name.upper()
+        if self.fold == "lower" and (name.isupper() or name.islower()):   # MiXtO: criado com aspas
+            return name.lower()
+        return name
+
+    def _split(self, table: str) -> tuple[str, str]:
+        schema, _, name = table.strip().rpartition(".")
+        return (self._ident(schema) if schema else ""), self._ident(name)
+
+    @staticmethod
+    def _lit(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
+
+    @staticmethod
+    def _exists(from_where: str) -> str:
+        return f"SELECT CASE WHEN COUNT(*) > 0 THEN 'SIM' ELSE 'NAO' END AS EXISTE\n  FROM {from_where}"
+
+    def table_exists_sql(self, table: str) -> str:
+        schema, name = self._split(table)
+        where = f"table_name = {self._lit(name)}"
+        if schema:
+            where = f"table_schema = {self._lit(schema)}\n   AND " + where
+        return self._exists(f"information_schema.tables\n WHERE {where}")
+
+    def column_exists_sql(self, table: str, column: str) -> str:
+        schema, name = self._split(table)
+        where = f"table_name = {self._lit(name)}\n   AND column_name = {self._lit(self._ident(column))}"
+        if schema:
+            where = f"table_schema = {self._lit(schema)}\n   AND " + where
+        return self._exists(f"information_schema.columns\n WHERE {where}")
+
     def table_ddl(self, conn, table: str) -> str:
         cols = self.columns(conn, table)
         lines = []
@@ -112,6 +152,17 @@ class Driver:
 
 # --------------------------------------------------------------------------
 class FirebirdDriver(Driver):
+    fold = "upper"
+
+    def table_exists_sql(self, table):
+        name = self._split(table)[1]
+        return self._exists(f"RDB$RELATIONS\n WHERE RDB$RELATION_NAME = {self._lit(name)}")
+
+    def column_exists_sql(self, table, column):
+        name = self._split(table)[1]
+        return self._exists(f"RDB$RELATION_FIELDS\n WHERE RDB$RELATION_NAME = {self._lit(name)}"
+                            f"\n   AND RDB$FIELD_NAME = {self._lit(self._ident(column))}")
+
     key = "firebird"
     label = "Firebird / InterBase"
     default_port = "3050"
@@ -290,6 +341,8 @@ def _text(v):
 
 # --------------------------------------------------------------------------
 class PostgresDriver(Driver):
+    fold = "lower"
+
     key = "postgres"
     label = "PostgreSQL"
     default_port = "5432"
@@ -354,6 +407,17 @@ class PostgresDriver(Driver):
 
 
 class MySQLDriver(Driver):
+    def table_exists_sql(self, table):
+        schema, name = self._split(table)
+        return self._exists(f"information_schema.tables\n WHERE table_schema = {self._lit(schema) if schema else 'DATABASE()'}"
+                            f"\n   AND table_name = {self._lit(name)}")
+
+    def column_exists_sql(self, table, column):
+        schema, name = self._split(table)
+        return self._exists(f"information_schema.columns\n WHERE table_schema = {self._lit(schema) if schema else 'DATABASE()'}"
+                            f"\n   AND table_name = {self._lit(name)}"
+                            f"\n   AND column_name = {self._lit(self._ident(column))}")
+
     key = "mysql"
     label = "MySQL / MariaDB"
     default_port = "3306"
@@ -464,6 +528,22 @@ class SQLServerDriver(Driver):
 
 
 class OracleDriver(Driver):
+    fold = "upper"
+
+    def table_exists_sql(self, table):
+        schema, name = self._split(table)
+        if schema:
+            return self._exists(f"all_tables\n WHERE owner = {self._lit(schema)}\n   AND table_name = {self._lit(name)}")
+        return self._exists(f"user_tables\n WHERE table_name = {self._lit(name)}")
+
+    def column_exists_sql(self, table, column):
+        schema, name = self._split(table)
+        col = self._lit(self._ident(column))
+        if schema:
+            return self._exists(f"all_tab_columns\n WHERE owner = {self._lit(schema)}"
+                                f"\n   AND table_name = {self._lit(name)}\n   AND column_name = {col}")
+        return self._exists(f"user_tab_columns\n WHERE table_name = {self._lit(name)}\n   AND column_name = {col}")
+
     key = "oracle"
     label = "Oracle"
     default_port = "1521"
@@ -520,6 +600,14 @@ class OracleDriver(Driver):
 
 
 class SQLiteDriver(Driver):
+    def table_exists_sql(self, table):
+        name = self._split(table)[1]
+        return self._exists(f"sqlite_master\n WHERE type IN ('table', 'view')\n   AND name = {self._lit(name)} COLLATE NOCASE")
+
+    def column_exists_sql(self, table, column):
+        name = self._split(table)[1]
+        return self._exists(f"pragma_table_info({self._lit(name)})\n WHERE name = {self._lit(self._ident(column))} COLLATE NOCASE")
+
     key = "sqlite"
     label = "SQLite"
     needs_host = False

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from . import __version__, anim, cores, theme
-from .dialogs import ConnectionDialog, StructureDialog
+from .dialogs import ConnectionDialog, StdSqlDialog, StructureDialog
 from .drivers import get_driver
 from .editor import SqlEditor
 from .perfchart import PerfChart
@@ -314,6 +314,29 @@ class SqlTab(QWidget):
         if run:                                # executa exatamente a seleção (o SQL acrescentado)
             QTimer.singleShot(0, lambda: self.execute(False))
 
+    def std_sql(self, kind: str, guess: str = ""):
+        """Menu "SQL padrão" do editor: pergunta a tabela (e a coluna), escreve o SQL na aba SELECT e executa."""
+        p = self.profile
+        if not p:
+            return
+        objs = self.main.meta_objects.get(self.profile_id) or {}
+        tables = [n for cat in ("Tabelas", "Views") for n in objs.get(cat, [])]
+        ed = self.editor
+
+        def columns_for(table):
+            cols = ed.columns_cache.get(table.split(".")[-1].upper())
+            if cols is None and ed.columns_provider:
+                ed.columns_provider(table)   # chega depois; o diálogo recarrega ao focar o campo
+            return cols
+
+        dlg = StdSqlDialog(kind, tables, columns_for, guess, self)
+        if not dlg.exec():
+            return
+        drv = get_driver(p.driver)
+        sql = (drv.table_exists_sql(dlg.table_name()) if kind == "table"
+               else drv.column_exists_sql(dlg.table_name(), dlg.column_name()))
+        self.append_sql("SELECT", sql, run=True)
+
     def set_objects(self, objects):
         for ed in self.editors.values():
             ed.set_objects(objects)
@@ -384,6 +407,7 @@ class SqlTab(QWidget):
                 ed.clear_completion_cache()
                 ed.columns_provider = lambda table, pid=pid: self.main.request_columns(pid, table)
                 ed.structure_handler = lambda name, pid=pid: self.main.show_structure(pid, name)
+                ed.std_sql_handler = self.std_sql
             self.main.ensure_objects(pid)
             self.set_objects(self.main.meta_objects.get(pid) or {})
             for t, cols in self.main.columns_cache.get(pid, {}).items():
@@ -393,6 +417,7 @@ class SqlTab(QWidget):
             self.head.setStyleSheet("")
             for ed in self.editors.values():
                 ed.structure_handler = None
+                ed.std_sql_handler = None
         self.history_panel.refresh()
         self._update_tx()
         self.state_changed.emit()
@@ -825,7 +850,7 @@ def _guess_table(sql):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"Skorpa Data {__version__}")
+        self.setWindowTitle(f"WBS Data {__version__}")
         self.resize(1400, 860)
         self.store = ConnectionStore()
         self.history = History()
@@ -973,13 +998,13 @@ class MainWindow(QMainWindow):
         self.a_export_conns = self._act("Exportar conexões (sem senhas)…", self.export_connections,
                                         None, ("file-export", "icon"))
 
-        # barra superior com o nome Skorpa (fonte Mea Culpa, embutida em resources/fonts)
-        brand = QToolBar("Skorpa")
+        # barra superior com o nome WBS (fonte Libre Caslon Display, embutida em resources/fonts)
+        brand = QToolBar("WBS")
         brand.setObjectName("tb_brand")
         brand.setMovable(False)
         brand.setFloatable(False)
         brand.toggleViewAction().setVisible(False)
-        self.brand_label = QLabel("Skorpa")
+        self.brand_label = QLabel("WBS")
         self.brand_label.setAlignment(Qt.AlignCenter)
         self.brand_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         brand.addWidget(self.brand_label)
@@ -1080,11 +1105,12 @@ class MainWindow(QMainWindow):
             f"QToolBar {{ background: {theme.skorpa('cardBg')}; border: none;"
             f" border-bottom: 1px solid {theme.skorpa('cardBgHover')}; }}")
         self.brand_label.setStyleSheet(
-            f"font-family: 'Mea Culpa'; font-size: {theme.pt(24)}pt; font-weight: normal; padding: 2px 0 2px 0;"
-            f" color: {theme.skorpa('whiteColor')};")
-        # a Mea Culpa só tem peso Regular: sem isso o Qt pode engrossar o traço artificialmente
+            f"font-family: 'Libre Caslon Display'; font-size: {theme.pt(28)}pt; font-weight: bold;"
+            f" padding: 2px 0 2px 0; color: {theme.skorpa('whiteColor')};")
+        # a Libre Caslon Display só tem peso Regular: o bold é sintetizado pelo Qt (como o navegador faz no Skorpa)
         f = self.brand_label.font()
-        f.setWeight(QFont.Weight.Normal)
+        f.setWeight(QFont.Weight.Bold)
+        f.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 110)   # 0.1em, como no Skorpa
         f.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
         self.brand_label.setFont(f)
 

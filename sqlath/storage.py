@@ -173,7 +173,7 @@ class ConnectionStore:
         elif isinstance(data, dict) and "name" in data:
             items = [data]
         else:
-            raise ValueError("Arquivo não parece uma conexão do Skorpa Data.")
+            raise ValueError("Arquivo não parece uma conexão do WBS Data.")
         known = ConnectionProfile.__dataclass_fields__
         out = []
         for item in items:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cria "Skorpa Data.app" (com ícone) para abrir o Skorpa Data pelo Launchpad/Dock/Spotlight no macOS.
+# Cria "WBS Data.app" (com ícone) para abrir o WBS Data pelo Launchpad/Dock/Spotlight no macOS.
 #
 #   ./macos/criar_app.sh                 # instala em ~/Applications
 #   ./macos/criar_app.sh /Applications   # ou em outra pasta
@@ -13,7 +13,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="${1:-$HOME/Applications}"
-APP="$DEST/Skorpa Data.app"
+APP="$DEST/WBS Data.app"
 ICON_PNG="$REPO/sqlath/resources/app_icon_macos.png"
 
 # 1) Ambiente Python (.venv) — prefere o Python do Homebrew ao do sistema (3.9, antigo)
@@ -29,7 +29,7 @@ if [[ ! -x "$REPO/.venv/bin/python" ]]; then
 fi
 
 # Binário real do Python (dentro do Python.app do framework). Ele é ligado dentro do nosso
-# .app para que o menu e o Dock mostrem "Skorpa Data" em vez de "Python".
+# .app para que o menu e o Dock mostrem "WBS Data" em vez de "Python".
 read -r PYBIN SITE < <("$REPO/.venv/bin/python" - <<'EOF'
 import sys, sysconfig
 from pathlib import Path
@@ -39,23 +39,23 @@ print(app if app.exists() else Path(sys._base_executable).resolve(), sysconfig.g
 EOF
 )
 
-# 2) Monta o bundle (e remove o app com o nome antigo, "SQL Ath")
-rm -rf "$APP" "$DEST/SQL Ath.app"
+# 2) Monta o bundle (e remove os apps com os nomes antigos, "SQL Ath" e "Skorpa Data")
+rm -rf "$APP" "$DEST/SQL Ath.app" "$DEST/Skorpa Data.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-ln -s "$PYBIN" "$APP/Contents/MacOS/Skorpa Data"
+ln -s "$PYBIN" "$APP/Contents/MacOS/WBS Data"
 
 cat > "$APP/Contents/MacOS/sqlath" <<EOF
 #!/bin/bash
 # Gerado por macos/criar_app.sh — repositório: $REPO
 REPO="$REPO"
 if [[ ! -d "\$REPO/sqlath" ]]; then
-    osascript -e 'display alert "Skorpa Data" message "Repositório não encontrado em:\n$REPO\n\nRode macos/criar_app.sh de novo."'
+    osascript -e 'display alert "WBS Data" message "Repositório não encontrado em:\n$REPO\n\nRode macos/criar_app.sh de novo."'
     exit 1
 fi
 cd "\$REPO"
 export PYTHONPATH="\$REPO:$SITE"
 export PYTHONNOUSERSITE=1
-exec "\$(dirname "\$0")/Skorpa Data" -m sqlath "\$@"
+exec "\$(dirname "\$0")/WBS Data" -m sqlath "\$@"
 EOF
 chmod +x "$APP/Contents/MacOS/sqlath"
 
@@ -76,8 +76,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Skorpa Data</string>
-    <key>CFBundleDisplayName</key><string>Skorpa Data</string>
+    <key>CFBundleName</key><string>WBS Data</string>
+    <key>CFBundleDisplayName</key><string>WBS Data</string>
     <key>CFBundleIdentifier</key><string>br.com.skorpadata</string>
     <key>CFBundleExecutable</key><string>sqlath</string>
     <key>CFBundleIconFile</key><string>sqlath</string>
@@ -96,4 +96,4 @@ touch "$APP"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" 2>/dev/null || true
 
 echo "Pronto: $APP"
-echo "Abra pelo Launchpad/Spotlight (\"Skorpa Data\") e, se quiser, fixe no Dock."
+echo "Abra pelo Launchpad/Spotlight (\"WBS Data\") e, se quiser, fixe no Dock."

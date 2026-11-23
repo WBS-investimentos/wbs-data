@@ -1,6 +1,6 @@
-# Cores do Skorpa Data
+# Cores do WBS Data
 
-O Skorpa Data é um projeto Skorpa e usa **a mesma paleta do Skorpa** (`src/app/globals.css`
+O WBS Data é um projeto Skorpa e usa **a mesma paleta do Skorpa** (`src/app/globals.css`
 do repositório Skorpa), com os mesmos nomes de variável.
 
 - Fonte única das cores: [`sqlath/cores.py`](../sqlath/cores.py) (`DARK` = `:root`, `LIGHT` = `:root[data-theme="light"]`).

@@ -144,6 +144,7 @@ class SqlEditor(QPlainTextEdit):
         self.columns_cache: dict[str, list[str]] = {}   # TABELA (maiúsc.) -> colunas
         self.columns_provider = None                     # callable(tabela): busca colunas em background
         self.structure_handler = None                    # callable(nome): Ctrl+clique mostra a estrutura
+        self.std_sql_handler = None                      # callable(tipo, sugestão): menu "SQL padrão"
         self.setMouseTracking(True)
         self._requested: set[str] = set()
         self.completer = QCompleter(self)
@@ -306,6 +307,21 @@ class SqlEditor(QPlainTextEdit):
                 e.accept()
                 return
         super().mousePressEvent(e)
+
+    def contextMenuEvent(self, e):
+        menu = self.createStandardContextMenu(e.pos())
+        if self.std_sql_handler:
+            sel = self.textCursor().selectedText().strip()
+            hit = self._name_at(e.pos())
+            guess = sel if sel and "\u2029" not in sel and len(sel) < 128 else (hit[2] if hit else "")
+            menu.addSeparator()
+            sub = menu.addMenu(theme.icon("code", "icon"), "SQL padrão")
+            sub.addAction(theme.icon("table", "icon"), "Tabela existe?…",
+                          lambda: self.std_sql_handler("table", guess))
+            sub.addAction(theme.icon("columns", "icon"), "Coluna existe?…",
+                          lambda: self.std_sql_handler("column", guess))
+        menu.exec(e.globalPos())
+        menu.deleteLater()
 
     def keyReleaseEvent(self, e):
         if e.key() == Qt.Key_Control:

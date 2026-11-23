@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import copy
 
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import QEvent, QStringListModel, QThread, Qt, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem, QCheckBox, QComboBox, QCompleter, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
                                QToolButton, QVBoxLayout, QWidget)
 
@@ -290,3 +290,77 @@ class StructureDialog(QDialog):
         bb.rejected.connect(self.reject)
         bar.addWidget(bb)
         lay.addLayout(bar)
+
+
+class StdSqlDialog(QDialog):
+    """Menu "SQL padrão" do editor: pede a tabela (e a coluna) para montar o SQL de existência."""
+
+    def __init__(self, kind, tables, columns_for, initial="", parent=None):
+        super().__init__(parent)
+        self.kind = kind
+        self._columns_for = columns_for   # callable(tabela) -> list[str] | None (pede ao banco se faltar)
+        self.setWindowTitle("Tabela existe?" if kind == "table" else "Coluna existe?")
+        self.setMinimumWidth(420)
+        lay = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.table = QLineEdit()
+        self.table.setPlaceholderText("Nome da tabela")
+        tc = QCompleter(sorted(set(tables), key=str.upper), self.table)
+        tc.setCaseSensitivity(Qt.CaseInsensitive)
+        tc.setFilterMode(Qt.MatchContains)
+        self.table.setCompleter(tc)
+        form.addRow("Tabela:", self.table)
+
+        self.column = None
+        if kind == "column":
+            self.column = QLineEdit()
+            self.column.setPlaceholderText("Nome da coluna")
+            self._col_model = QStringListModel(self)
+            cc = QCompleter(self._col_model, self.column)
+            cc.setCaseSensitivity(Qt.CaseInsensitive)
+            cc.setFilterMode(Qt.MatchContains)
+            self.column.setCompleter(cc)
+            self.table.editingFinished.connect(self._load_columns)
+            self.column.installEventFilter(self)
+            form.addRow("Coluna:", self.column)
+        lay.addLayout(form)
+
+        hint = QLabel("O SQL é escrito na aba SELECT e executado.")
+        hint.setStyleSheet(f"color: {theme.c('muted')};")
+        lay.addWidget(hint)
+
+        self.bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.bb.button(QDialogButtonBox.Ok).setText("Executar")
+        self.bb.accepted.connect(self.accept)
+        self.bb.rejected.connect(self.reject)
+        lay.addWidget(self.bb)
+
+        self.table.textChanged.connect(self._validate)
+        if self.column:
+            self.column.textChanged.connect(self._validate)
+        self.table.setText(initial.strip())
+        if self.column and self.table.text():
+            self._load_columns()
+            self.column.setFocus()
+        self._validate()
+
+    def eventFilter(self, obj, ev):
+        # as colunas podem chegar do banco depois: recarrega ao focar o campo
+        if obj is self.column and ev.type() == QEvent.FocusIn:
+            self._load_columns()
+        return super().eventFilter(obj, ev)
+
+    def _load_columns(self):
+        cols = self._columns_for(self.table_name()) if self.table_name() else None
+        self._col_model.setStringList(cols or [])
+
+    def _validate(self):
+        ok = bool(self.table_name()) and (self.column is None or bool(self.column_name()))
+        self.bb.button(QDialogButtonBox.Ok).setEnabled(ok)
+
+    def table_name(self) -> str:
+        return self.table.text().strip()
+
+    def column_name(self) -> str:
+        return self.column.text().strip() if self.column else ""
