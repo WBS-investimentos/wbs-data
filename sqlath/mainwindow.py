@@ -18,6 +18,7 @@ from . import __version__, anim, cores, theme
 from .dialogs import ConnectionDialog, StdSqlDialog, StructureDialog
 from .drivers import get_driver
 from .editor import SqlEditor
+from .findbar import REPLACE_KEY, FindBar
 from .perfchart import PerfChart
 from .results import ResultView
 from .formatter import format_sql
@@ -205,6 +206,11 @@ class SqlTab(QWidget):
             self.sub_tabs.addTab(ed, theme.icon(SUB_ICONS[kind][0], SUB_ICONS[kind][1]), kind)
             self.sub_tabs.setTabToolTip(self.sub_tabs.count() - 1, SUB_TIPS[kind])
         self.sub_tabs.currentChanged.connect(lambda _: (self._schedule_save(), self.state_changed.emit()))
+        # Ctrl+F / Ctrl+H: barra de localizar/substituir flutuando no canto do editor
+        self.find_bar = FindBar(self.sub_tabs, lambda: self.editor)
+        self.sub_tabs.currentChanged.connect(lambda _: self.find_bar.editor_changed())
+        for ed in self.editors.values():
+            ed.escape_handler = lambda: self.find_bar.isVisible() and (self.find_bar.close_bar() or True)
         self._exec_editor: SqlEditor | None = None
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -986,8 +992,13 @@ class MainWindow(QMainWindow):
                                      ("plug-connected", "blue"), "Fecha e abre de novo a conexão da aba com o banco")
         self.a_disconnect = self._act("Desconectar aba", lambda: self.cur and self.cur.disconnect(), None,
                                       ("plug-connected-x", "red"))
-        self.a_find = self._act("Localizar…", self.find_text, "Ctrl+F", ("search", "icon"))
-        self.a_find_next = self._act("Localizar próximo", self.find_next, "F3")
+        self.a_find = self._act("Localizar…", lambda: self.cur and self.cur.find_bar.open(), "Ctrl+F",
+                                ("search", "icon"))
+        self.a_replace = self._act("Substituir…", lambda: self.cur and self.cur.find_bar.open(replace=True),
+                                   REPLACE_KEY)
+        self.a_find_next = self._act("Localizar próximo", lambda: self.cur and self.cur.find_bar.find_next(), "F3")
+        self.a_find_prev = self._act("Localizar anterior", lambda: self.cur and self.cur.find_bar.find_prev(),
+                                     "Shift+F3")
         self.a_format = self._act("Formatar SQL", lambda: self.cur and self.cur.format_sql(), "Ctrl+Shift+F",
                                   ("align-left", "icon"), "Formata o SQL selecionado (sem seleção: o editor inteiro)")
         self.a_comment = self._act("Comentar/descomentar", lambda: self.cur and self.cur.editor.toggle_comment(), None)
@@ -1047,7 +1058,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_disconnect)
         m = mb.addMenu("&SQL")
         for a in (self.a_run, self.a_script, self.a_stop, None, self.a_commit, self.a_rollback, self.a_auto, None,
-                  self.a_format, self.a_find, self.a_find_next, self.a_comment):
+                  self.a_format, self.a_find, self.a_replace, self.a_find_next, self.a_find_prev, self.a_comment):
             m.addSeparator() if a is None else m.addAction(a)
         m = mb.addMenu("E&xibir")
         # ação própria (em vez do toggleViewAction do dock) para recolher/mostrar com animação
@@ -1124,6 +1135,7 @@ class MainWindow(QMainWindow):
             tab = self.tabs.widget(i)
             for ed in tab.editors.values():
                 ed.apply_theme()
+            tab.find_bar.apply_theme()
             for i, k in enumerate(SUB_TABS):
                 tab.sub_tabs.setTabIcon(i, theme.icon(*SUB_ICONS[k]))
             tab.out_tabs.setTabIcon(tab.out_tabs.indexOf(tab.history_panel), theme.icon("history", "icon"))
@@ -1836,12 +1848,15 @@ Ctrl+Shift+R — reconectar a aba ao banco
 Ctrl+T — nova aba          Ctrl+O / Ctrl+S — abrir / salvar
 Ctrl+Espaço — autocompletar
 Ctrl+Shift+F — formatar o SQL selecionado (sem seleção: tudo)
-Ctrl+/ — comentar linhas   Ctrl+F / F3 — localizar
+Ctrl+/ — comentar linhas
+Ctrl+F — localizar   F3 / Shift+F3 — próxima / anterior   Esc — fechar a busca
+{REPLACE} — substituir (Ctrl+Alt+Enter no campo: substituir todas)
 Ctrl+B — mostrar/recolher a barra lateral de bancos
 Ctrl+J — mostrar/recolher o painel de resultados
 Duplo clique em tabela — SELECT das primeiras 100 linhas
 Duplo clique em célula — ver valor completo
-""".strip().replace("Ctrl+", "⌘" if sys.platform == "darwin" else "Ctrl+"))
+""".strip().replace("{REPLACE}", REPLACE_KEY).replace("Ctrl+", "⌘" if sys.platform == "darwin" else "Ctrl+")
+            .replace("Alt+", "⌥" if sys.platform == "darwin" else "Alt+"))
 
     # sessão de trabalho -------------------------------------------
     def restore_tabs(self):

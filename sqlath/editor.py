@@ -127,6 +127,9 @@ class SqlEditor(QPlainTextEdit):
         super().__init__(parent)
         self.error_range: tuple[int, int] | None = None
         self._link_range: tuple[int, int] | None = None  # nome sublinhado com Ctrl pressionado
+        self._search_ranges: list[tuple[int, int]] = []  # ocorrências da barra de localizar
+        self._search_current = -1
+        self.escape_handler = None                        # callable() -> bool: Esc fecha a barra de localizar
         self.setFont(mono_font())
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.setTabStopDistance(self.fontMetrics().horizontalAdvance(" ") * 4)
@@ -135,6 +138,7 @@ class SqlEditor(QPlainTextEdit):
         self.blockCountChanged.connect(lambda _: self._update_margin())
         self.updateRequest.connect(self._on_update_request)
         self.cursorPositionChanged.connect(self._highlight_line)
+        self.verticalScrollBar().valueChanged.connect(lambda _: self._search_ranges and self._highlight_line())
         self._update_margin()
         self._highlight_line()
 
@@ -348,6 +352,8 @@ class SqlEditor(QPlainTextEdit):
         if e.matches(QKeySequence.StandardKey.Find):
             e.ignore()
             return
+        if e.key() == Qt.Key_Escape and not e.modifiers() and self.escape_handler and self.escape_handler():
+            return
         if e.key() == Qt.Key_Slash and e.modifiers() & Qt.ControlModifier:
             self.toggle_comment()
             return
@@ -446,6 +452,26 @@ class SqlEditor(QPlainTextEdit):
             c.setPosition(min(self.error_range[1], len(self.toPlainText())), QTextCursor.KeepAnchor)
             err.cursor = c
             sels.append(err)
+        if self._search_ranges:
+            n = len(self.toPlainText())
+            first = self.firstVisibleBlock().position()
+            last = self.cursorForPosition(self.viewport().rect().bottomRight()).block()
+            last = last.position() + last.length() if last.isValid() else n
+            for i, (s, e) in enumerate(self._search_ranges):
+                # só as visíveis (e a atual): milhares de ExtraSelections deixam o editor lento
+                if i != self._search_current and (e < first or s > last):
+                    continue
+                m = QTextEdit.ExtraSelection()
+                m.format.setBackground(theme.qcolor(theme.skorpa("blueColorAlpha25")))
+                if i == self._search_current:
+                    m.format.setUnderlineStyle(QTextCharFormat.SingleUnderline)
+                    m.format.setUnderlineColor(QColor(theme.c("orange")))
+                    m.format.setFontUnderline(True)
+                c = QTextCursor(self.document())
+                c.setPosition(min(s, n))
+                c.setPosition(min(e, n), QTextCursor.KeepAnchor)
+                m.cursor = c
+                sels.append(m)
         if self._link_range:
             link = QTextEdit.ExtraSelection()
             link.format.setFontUnderline(True)
@@ -462,6 +488,11 @@ class SqlEditor(QPlainTextEdit):
         self.highlighter.rehighlight()
         self._highlight_line()
         self.line_area.update()
+
+    def set_search_highlights(self, ranges, current=-1):
+        self._search_ranges = list(ranges)
+        self._search_current = current
+        self._highlight_line()
 
     def mark_error(self, start, end):
         self.error_range = (start, end)
