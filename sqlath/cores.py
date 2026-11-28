@@ -4,7 +4,7 @@ Regra (igual ao Skorpa): toda cor do app sai daqui. Nada de cor hardcoded em out
 arquivos e nada de variável nova sem combinar antes. Detalhes e papéis de cada cor em
 docs/cores.md.
 
-Como no Skorpa, o tema escuro é o padrão e os nomes descrevem o PAPEL herdado dele,
+O tema claro é o padrão do app; como no Skorpa, os nomes descrevem o PAPEL herdado dele,
 não o valor literal: no tema claro `whiteColor` é a cor do texto e `blackColor` a da
 superfície, com os valores trocados.
 """

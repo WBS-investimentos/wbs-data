@@ -41,7 +41,7 @@ def _roles(k: dict) -> dict:
 
 THEMES = {name: _roles(pal) for name, pal in cores.PALETTES.items()}
 
-_current = "dark"  # como no Skorpa, o escuro é o padrão
+_current = "light"  # o claro é o padrão
 
 
 def name() -> str:
@@ -138,7 +138,7 @@ def _stylesheet(k: dict) -> str:
 
 def apply(theme: str, save=True):
     global _current
-    _current = theme if theme in THEMES else "dark"
+    _current = theme if theme in THEMES else "light"
     app = QApplication.instance()
     try:  # Qt >= 6.8: não deixa o esquema do sistema sobrescrever o tema escolhido
         app.styleHints().setColorScheme(Qt.ColorScheme.Dark if _current == "dark" else Qt.ColorScheme.Light)
@@ -158,7 +158,7 @@ def apply(theme: str, save=True):
 
 
 def load_saved():
-    apply(QSettings("sqlath", "sqlath").value("theme", "dark"), save=False)
+    apply(QSettings("sqlath", "sqlath").value("theme", "light"), save=False)
 
 
 @lru_cache(maxsize=None)

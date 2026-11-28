@@ -10,14 +10,14 @@ do repositório Skorpa), com os mesmos nomes de variável.
 
 1. **Só as variáveis da paleta.** Nenhuma cor fixa (`#rrggbb`, `white`, `Qt.red`…) fora de `cores.py`.
 2. **Nenhuma variável nova** sem combinar antes. Se o Skorpa ganhar uma cor nova no `globals.css`, ela entra aqui com o mesmo nome e o mesmo valor.
-3. **O escuro é o padrão**, como no Skorpa. No tema claro os nomes continuam descrevendo o *papel* herdado do escuro: `whiteColor` é a cor do texto e `blackColor` a da superfície, com os valores trocados.
+3. **O claro é o padrão do app** (no Skorpa é o escuro). No tema claro os nomes continuam descrevendo o *papel* herdado do escuro: `whiteColor` é a cor do texto e `blackColor` a da superfície, com os valores trocados.
 4. **Texto sobre fundo colorido** (faixas de ambiente, etiqueta de transação pendente) usa `cores.text_on(fundo)`, que escolhe entre o `blackColor` e o `whiteColor` do tema escuro conforme o contraste.
 
 **Exceção:** os logotipos dos bancos (`theme.DB_ICON_COLORS` e `resources/icons/db/`) mantêm as cores das próprias marcas (elefante azul do PostgreSQL etc.).
 
 ## Paleta
 
-| Variável | Escuro (padrão) | Claro |
+| Variável | Escuro | Claro (padrão) |
 |---|---|---|
 | `whiteColor` | `#FAF9F6` | `#1d1d1d` |
 | `secondaryWhite` | `#EDEDED` | `#2f2f2f` |
